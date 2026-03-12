@@ -1,0 +1,50 @@
+name: Common Lisp CI
+
+on:
+  workflow_call:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SBCL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sbcl
+
+      - name: Register project with ASDF
+        run: |
+          mkdir -p ~/.config/common-lisp/source-registry.conf.d/
+          echo '(:tree "${{ github.workspace }}")' > ~/.config/common-lisp/source-registry.conf.d/ci.conf
+
+      - name: Detect system name
+        id: detect
+        run: |
+          ASD_FILE=$(ls *.asd | head -1)
+          SYSTEM_NAME=$(basename "$ASD_FILE" .asd)
+          echo "system=$SYSTEM_NAME" >> "$GITHUB_OUTPUT"
+          if grep -q '/test' "$ASD_FILE"; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Load system (build check)
+        run: |
+          sbcl --non-interactive \
+               --eval '(require :asdf)' \
+               --eval "(asdf:load-system \"${{ steps.detect.outputs.system }}\")" \
+               --eval '(format t "~&BUILD OK~%")' \
+               --quit
+
+      - name: Run tests
+        if: steps.detect.outputs.has_tests == 'true'
+        run: |
+          sbcl --non-interactive \
+               --eval '(require :asdf)' \
+               --eval "(asdf:test-system \"${{ steps.detect.outputs.system }}\")" \
+               --eval '(format t "~&TESTS OK~%")' \
+               --quit
